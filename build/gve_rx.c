@@ -58,7 +58,6 @@ static void gve_rx_unfill_pages(struct gve_priv *priv,
 				   &rx->data.page_info[i].page->_count);
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0) */
 		}
-		rx->data.qpl = NULL;
 
 		for (i = 0; i < rx->qpl_copy_pool_mask + 1; i++) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0)
@@ -133,6 +132,7 @@ static void gve_rx_free_ring_gqi(struct gve_priv *priv, struct gve_rx_ring *rx,
 	u32 slots = rx->mask + 1;
 	int idx = rx->q_num;
 	size_t bytes;
+	u32 qpl_id;
 
 	if (rx->desc.desc_ring) {
 		bytes = sizeof(struct gve_rx_desc) * cfg->ring_size;
@@ -161,6 +161,12 @@ static void gve_rx_free_ring_gqi(struct gve_priv *priv, struct gve_rx_ring *rx,
 	kfree(rx->qpl_copy_pool);
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0) */
 	rx->qpl_copy_pool = NULL;
+
+	if (rx->data.qpl) {
+		qpl_id = gve_get_rx_qpl_id(cfg->qcfg_tx, idx);
+		gve_free_queue_page_list(priv, rx->data.qpl, qpl_id);
+		rx->data.qpl = NULL;
+	}
 
 	netif_dbg(priv, drv, priv->dev, "freed rx ring %d\n", idx);
 }
@@ -226,12 +232,6 @@ static int gve_rx_prefill_pages(struct gve_rx_ring *rx,
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0) */
 	if (!rx->data.page_info)
 		return -ENOMEM;
-
-	if (!rx->data.raw_addressing) {
-		u32 qpl_id = gve_get_rx_qpl_id(cfg->qcfg_tx, rx->q_num);
-
-		rx->data.qpl = &cfg->qpls[qpl_id];
-	}
 
 	for (i = 0; i < slots; i++) {
 		if (!rx->data.raw_addressing) {
@@ -299,8 +299,6 @@ alloc_err_qpl:
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0) */
 	}
 
-	rx->data.qpl = NULL;
-
 	return err;
 
 alloc_err_rda:
@@ -327,6 +325,8 @@ static int gve_rx_alloc_ring_gqi(struct gve_priv *priv,
 	struct device *hdev = &priv->pdev->dev;
 	u32 slots = cfg->ring_size;
 	int filled_pages;
+	int qpl_page_cnt;
+	u32 qpl_id = 0;
 	size_t bytes;
 	int err;
 
@@ -364,10 +364,22 @@ static int gve_rx_alloc_ring_gqi(struct gve_priv *priv,
 		goto abort_with_slots;
 	}
 
+	if (!rx->data.raw_addressing) {
+		qpl_id = gve_get_rx_qpl_id(cfg->qcfg_tx, rx->q_num);
+		qpl_page_cnt = cfg->ring_size;
+
+		rx->data.qpl = gve_alloc_queue_page_list(priv, qpl_id,
+							 qpl_page_cnt);
+		if (!rx->data.qpl) {
+			err = -ENOMEM;
+			goto abort_with_copy_pool;
+		}
+	}
+
 	filled_pages = gve_rx_prefill_pages(rx, cfg);
 	if (filled_pages < 0) {
 		err = -ENOMEM;
-		goto abort_with_copy_pool;
+		goto abort_with_qpl;
 	}
 	rx->fill_cnt = filled_pages;
 	/* Ensure data ring slots (packet buffers) are visible. */
@@ -412,6 +424,11 @@ abort_with_q_resources:
 	rx->q_resources = NULL;
 abort_filled:
 	gve_rx_unfill_pages(priv, rx, cfg);
+abort_with_qpl:
+	if (!rx->data.raw_addressing) {
+		gve_free_queue_page_list(priv, rx->data.qpl, qpl_id);
+		rx->data.qpl = NULL;
+	}
 abort_with_copy_pool:
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
 	kvfree(rx->qpl_copy_pool);
@@ -433,12 +450,6 @@ int gve_rx_alloc_rings_gqi(struct gve_priv *priv,
 	struct gve_rx_ring *rx;
 	int err = 0;
 	int i, j;
-
-	if (!cfg->raw_addressing && !cfg->qpls) {
-		netif_err(priv, drv, priv->dev,
-			  "Cannot alloc QPL ring before allocing QPLs\n");
-		return -EINVAL;
-	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
 	rx = kvcalloc(cfg->qcfg->max_queues, sizeof(struct gve_rx_ring),
