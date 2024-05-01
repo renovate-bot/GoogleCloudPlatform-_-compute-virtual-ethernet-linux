@@ -41,6 +41,9 @@ static void gve_rx_unfill_pages(struct gve_priv *priv,
 	u32 slots = rx->mask + 1;
 	int i;
 
+	if (!rx->data.page_info)
+		return;
+
 	if (rx->data.raw_addressing) {
 		for (i = 0; i < slots; i++)
 			gve_rx_free_buffer(&priv->pdev->dev, &rx->data.page_info[i],
@@ -95,20 +98,26 @@ static void gve_rx_free_ring_gqi(struct gve_priv *priv, struct gve_rx_ring *rx,
 	int idx = rx->q_num;
 	size_t bytes;
 
-	bytes = sizeof(struct gve_rx_desc) * cfg->ring_size;
-	dma_free_coherent(dev, bytes, rx->desc.desc_ring, rx->desc.bus);
-	rx->desc.desc_ring = NULL;
+	if (rx->desc.desc_ring) {
+		bytes = sizeof(struct gve_rx_desc) * cfg->ring_size;
+		dma_free_coherent(dev, bytes, rx->desc.desc_ring, rx->desc.bus);
+		rx->desc.desc_ring = NULL;
+	}
 
-	dma_free_coherent(dev, sizeof(*rx->q_resources),
-			  rx->q_resources, rx->q_resources_bus);
-	rx->q_resources = NULL;
+	if (rx->q_resources) {
+		dma_free_coherent(dev, sizeof(*rx->q_resources),
+				  rx->q_resources, rx->q_resources_bus);
+		rx->q_resources = NULL;
+	}
 
 	gve_rx_unfill_pages(priv, rx, cfg);
 
-	bytes = sizeof(*rx->data.data_ring) * slots;
-	dma_free_coherent(dev, bytes, rx->data.data_ring,
-			  rx->data.data_bus);
-	rx->data.data_ring = NULL;
+	if (rx->data.data_ring) {
+		bytes = sizeof(*rx->data.data_ring) * slots;
+		dma_free_coherent(dev, bytes, rx->data.data_ring,
+				  rx->data.data_bus);
+		rx->data.data_ring = NULL;
+	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
 	kvfree(rx->qpl_copy_pool);
