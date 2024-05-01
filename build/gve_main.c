@@ -34,7 +34,7 @@
 #define GVE_DEFAULT_RX_COPYBREAK	(256)
 
 #define DEFAULT_MSG_LEVEL	(NETIF_MSG_DRV | NETIF_MSG_LINK)
-#define GVE_VERSION		 "1.4.1-8-e7109e2-e04a99e-oot"
+#define GVE_VERSION		 "1.4.1-9-e7109e2-2dde060-oot"
 #define GVE_VERSION_PREFIX	"GVE-"
 
 // Minimum amount of time between queue kicks in msec (10 seconds)
@@ -2193,6 +2193,13 @@ static void gve_turnup(struct gve_priv *priv)
 			gve_set_itr_coalesce_usecs_dqo(priv, block,
 						       priv->tx_coalesce_usecs);
 		}
+
+		/* Any descs written by the NIC before this barrier will be
+		 * handled by the one-off napi schedule below. Whereas any
+		 * descs after the barrier will generate interrupts.
+		 */
+		mb();
+		napi_schedule(&block->napi);
 	}
 	for (idx = 0; idx < priv->rx_cfg.num_queues; idx++) {
 		int ntfy_idx = gve_rx_idx_to_ntfy(priv, idx);
@@ -2208,6 +2215,13 @@ static void gve_turnup(struct gve_priv *priv)
 			gve_set_itr_coalesce_usecs_dqo(priv, block,
 						       priv->rx_coalesce_usecs);
 		}
+
+		/* Any descs written by the NIC before this barrier will be
+		 * handled by the one-off napi schedule below. Whereas any
+		 * descs after the barrier will generate interrupts.
+		 */
+		mb();
+		napi_schedule(&block->napi);
 	}
 
 	gve_set_napi_enabled(priv);
