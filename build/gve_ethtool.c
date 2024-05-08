@@ -95,42 +95,69 @@ static const char gve_gstrings_priv_flags[][ETH_GSTRING_LEN] = {
 static void gve_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 {
 	struct gve_priv *priv = netdev_priv(netdev);
-	char *s = (char *)data;
+	u8 *s = (char *)data;
 	int num_tx_queues;
 	int i, j;
 
 	num_tx_queues = gve_num_tx_queues(priv);
 	switch (stringset) {
 	case ETH_SS_STATS:
-		memcpy(s, *gve_gstrings_main_stats,
-		       sizeof(gve_gstrings_main_stats));
-		s += sizeof(gve_gstrings_main_stats);
+		for (i = 0; i < ARRAY_SIZE(gve_gstrings_main_stats); i++) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+			ethtool_puts(&s, gve_gstrings_main_stats[i]);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0) */
+			strscpy(*&s, gve_gstrings_main_stats[i],
+				ETH_GSTRING_LEN);
+			*&s += ETH_GSTRING_LEN;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0) */
+		}
 
-		for (i = 0; i < priv->rx_cfg.num_queues; i++) {
+		for (i = 0; i < priv->rx_cfg.num_queues; i++)
 			for (j = 0; j < NUM_GVE_RX_CNTS; j++) {
-				snprintf(s, ETH_GSTRING_LEN,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
+				ethtool_sprintf(&s, gve_gstrings_rx_stats[j],
+						i);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(5,13,0) */
+				snprintf(*&s, ETH_GSTRING_LEN,
 					 gve_gstrings_rx_stats[j], i);
-				s += ETH_GSTRING_LEN;
+				*&s += ETH_GSTRING_LEN;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0) */
 			}
-		}
 
-		for (i = 0; i < num_tx_queues; i++) {
+		for (i = 0; i < num_tx_queues; i++)
 			for (j = 0; j < NUM_GVE_TX_CNTS; j++) {
-				snprintf(s, ETH_GSTRING_LEN,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
+				ethtool_sprintf(&s, gve_gstrings_tx_stats[j],
+						i);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(5,13,0) */
+				snprintf(*&s, ETH_GSTRING_LEN,
 					 gve_gstrings_tx_stats[j], i);
-				s += ETH_GSTRING_LEN;
+				*&s += ETH_GSTRING_LEN;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0) */
 			}
+
+		for (i = 0; i < ARRAY_SIZE(gve_gstrings_adminq_stats); i++) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+			ethtool_puts(&s, gve_gstrings_adminq_stats[i]);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0) */
+			strscpy(*&s, gve_gstrings_adminq_stats[i],
+				ETH_GSTRING_LEN);
+			*&s += ETH_GSTRING_LEN;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0) */
 		}
 
-		memcpy(s, *gve_gstrings_adminq_stats,
-		       sizeof(gve_gstrings_adminq_stats));
-		s += sizeof(gve_gstrings_adminq_stats);
 		break;
 
 	case ETH_SS_PRIV_FLAGS:
-		memcpy(s, *gve_gstrings_priv_flags,
-		       sizeof(gve_gstrings_priv_flags));
-		s += sizeof(gve_gstrings_priv_flags);
+		for (i = 0; i < ARRAY_SIZE(gve_gstrings_priv_flags); i++) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+			ethtool_puts(&s, gve_gstrings_priv_flags[i]);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0) */
+			strscpy(*&s, gve_gstrings_priv_flags[i],
+				ETH_GSTRING_LEN);
+			*&s += ETH_GSTRING_LEN;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0) */
+		}
 		break;
 
 	default:
